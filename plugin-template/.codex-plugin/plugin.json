@@ -1,0 +1,14 @@
+{
+  "name": "relay",
+  "version": "1.0.0",
+  "description": "Connect ChatGPT to your own Windows computer.",
+  "apps": "./.app.json",
+  "interface": {
+    "displayName": "Relay",
+    "shortDescription": "Your PC. One conversation.",
+    "longDescription": "Use your own Windows files, terminal, browser and desktop through a private Relay deployment.",
+    "logo": "./assets/pc-link-icon.png",
+    "composerIcon": "./assets/pc-link-icon.png",
+    "brandColor": "#087A98"
+  }
+}

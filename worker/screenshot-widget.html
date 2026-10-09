@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Relay screenshot</title>
+<style>
+:root{font-family:Inter,"Segoe UI",system-ui,sans-serif;color-scheme:light dark;--ink:#172a35;--muted:#526976;--line:#d5e6ec;--surface:#f5fafc;--accent:#087a98;--focus:#009ec4}*{box-sizing:border-box}body{margin:0;padding:20px;background:var(--surface);color:var(--ink)}header{display:flex;align-items:center;gap:12px;margin-bottom:16px}.mark{width:37px;height:37px;border:1px solid var(--line);border-radius:12px;display:grid;place-items:center;background:linear-gradient(145deg,#15435a,#081a29);color:#82e9ff;font-size:25px;font-weight:600}.eyebrow{font-size:10px;letter-spacing:1.7px;font-weight:700;color:var(--muted);margin-bottom:3px}h2{font-size:17px;font-weight:650;letter-spacing:-.3px;margin:0}p{font-size:13px;line-height:1.65;margin:12px 0 18px;color:var(--muted)}img{display:block;width:100%;height:auto;border-radius:12px;border:1px solid var(--line);box-shadow:0 8px 24px #00152612}button,a{font:600 12px/1.4 Inter,"Segoe UI",system-ui,sans-serif;border-radius:9px;padding:10px 14px;margin:14px 8px 0 0;border:1px solid var(--line);text-decoration:none}button{cursor:pointer;background:var(--accent);color:#fff;border-color:transparent}button:hover{filter:brightness(1.1)}a{color:var(--accent);background:transparent}button:focus-visible,a:focus-visible{outline:3px solid var(--focus);outline-offset:3px}#download{display:inline-block}#download[hidden],img[hidden],button[hidden]{display:none}@media(prefers-color-scheme:dark){:root{--ink:#edf6fa;--muted:#9cafbc;--line:#263c4a;--surface:#0d1721;--accent:#39c9e8;--focus:#91e7f7}button{color:#06151f}img{box-shadow:0 8px 24px #0004}}
+</style></head>
+<body><header><span class="mark" aria-hidden="true">↗</span><div><div class="eyebrow">RELAY · DESKTOP VIEW</div><h2>Relay screenshot</h2></div></header><p id="status" role="status" aria-live="polite">Waiting for the screenshot…</p><img id="preview" alt="Screenshot captured by Relay" hidden><button id="retry" hidden>Retry attachment</button><button id="continue" hidden>Continue with image</button><a id="download" hidden download="Relay screenshot.jpg">Download screenshot</a>
+<script>
+(() => {
+  const status = document.getElementById('status'), preview = document.getElementById('preview');
+  const retry = document.getElementById('retry'), continueButton = document.getElementById('continue'), download = document.getElementById('download');
+  const jobs = new Map(), requests = new Map(); let rpcId = 0, latest;
+  const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+  function rpc(method, params) {
+    return new Promise((resolve,reject) => {
+      const id = ++rpcId;
+      const timer = setTimeout(() => { requests.delete(id); reject(new Error('ChatGPT did not respond to the image bridge.')); }, 20000);
+      requests.set(id,{resolve,reject,timer});
+      window.parent.postMessage({jsonrpc:'2.0',id,method,params},'*');
+    });
+  }
+  function normalize(value) {
+    if (!value) return null;
+    if (value.mcp_tool_result) return normalize(value.mcp_tool_result);
+    if (value.call_tool_result) return normalize(value.call_tool_result);
+    if (value.structuredContent || value.isError) return value;
+    if (Array.isArray(value.content)) {
+      for(const item of value.content) if(item.type==='text') {
+        try {const parsed=JSON.parse(item.text);if(parsed?.job_id)return {...value,structuredContent:parsed};} catch {}
+      }
+      return value;
+    }
+    return null;
+  }
+  function globals() {
+    const api = window.openai;
+    const full = normalize(api?.toolResponseMetadata);
+    if (full) return full;
+    return api?.toolOutput ? {structuredContent:api.toolOutput,_meta:api.toolResponseMetadata} : null;
+  }
+  function persist(job, info) {
+    window.openai.setWidgetState({
+      modelContent:{message:'PC Link screenshot uploaded for visual inspection on the next chat turn.',job_id:job.job_id,screenshot_id:job.result?.screenshot_id,window_id:job.result?.window_id,coordinates:job.result?.coordinates,image:{...job.result?.image,data:undefined,storage_key:undefined},fileId:info.fileId},
+      privateContent:{job_id:job.job_id,fileId:info.fileId,followupSent:info.sent === true},
+      imageIds:[info.fileId]
+    });
+  }
+  async function continueChat(job, info) {
+    if (info.sent || info.sending) return;
+    const api = window.openai;
+    if (typeof api?.sendFollowUpMessage !== 'function') { continueButton.hidden=true;status.textContent='Image attached for the next chat turn. Send a message asking ChatGPT to inspect it.';return; }
+    info.sending=true;
+    try {
+      persist(job,info);
+      await api.sendFollowUpMessage({prompt:'Use the attached PC Link screenshot to continue my current request. Inspect the actual image; if no image is available, say so instead of guessing.',scrollToBottom:false});
+      info.sent=true; persist(job,info);continueButton.hidden=true;
+      status.textContent='Image attached for the next ChatGPT turn. Continue in the chat.';
+    } catch(error) {continueButton.hidden=false;status.textContent='Image attached, but ChatGPT could not continue automatically. Choose Continue with image or send a chat message.';}
+    finally {info.sending=false;}
+  }
+  async function processResult(envelope, force=false) {
+    envelope=normalize(envelope); if (!envelope) return;
+    const job=envelope.structuredContent; if (!job?.job_id) return;
+    latest=envelope;
+    let info=jobs.get(job.job_id);
+    if (info?.busy || (info?.ready && !force)) return;
+    if (!info) {info={};jobs.set(job.job_id,info);}
+    info.busy=true;retry.hidden=true;continueButton.hidden=true;
+    try {
+      if(envelope.isError || job.result?.ok === false) throw Error(job.result?.error || envelope.content?.find(c=>c.type==='text')?.text || 'Screenshot failed. No image attached.');
+      if(['queued','running'].includes(job.status)) {
+        status.textContent='Waiting for the captured screenshot…';
+        for(let n=0;n<40;n++) {
+          await pause(1500);
+          const next=typeof window.openai?.callTool==='function' ? await window.openai.callTool('get_job',{job_id:job.job_id}) : await rpc('tools/call',{name:'get_job',arguments:{job_id:job.job_id}});
+          const result=normalize(next);
+          if(!result || result.isError) throw Error(result?.content?.find(c=>c.type==='text')?.text || 'Screenshot retrieval failed. No image attached.');
+          if(!['queued','running'].includes(result.structuredContent?.status)) {info.busy=false;return await processResult(result,true);}
+        }
+        throw Error('Screenshot is still pending. No image attached yet. Retry to fetch the same capture.');
+      }
+      if(job.status!=='done') throw Error('Screenshot is not complete. No image attached.');
+      const image=envelope._meta?.screenshot || envelope.content?.find(c=>c.type==='image');
+      if(!image?.data || !['image/jpeg','image/png'].includes(image.mimeType)) throw Error('Screenshot bytes are missing. No image attached.');
+      const raw=atob(image.data), bytes=Uint8Array.from(raw,c=>c.charCodeAt(0));
+      const file=new File([bytes],`PC-Link-${job.job_id}.${image.mimeType==='image/png'?'png':'jpg'}`,{type:image.mimeType});
+      preview.src='data:'+image.mimeType+';base64,'+image.data;preview.hidden=false;
+      download.href=preview.src;download.download=file.name;download.hidden=false;
+      const api=window.openai;
+      if(typeof api?.uploadFile!=='function' || typeof api?.setWidgetState!=='function') throw Error('This ChatGPT client cannot attach images through PC Link. No image attached. Download the screenshot and attach it to the chat.');
+      const saved=api.widgetState?.privateContent;
+      if(!info.fileId && saved?.job_id===job.job_id && typeof saved.fileId==='string' && saved.fileId) {info.fileId=saved.fileId;info.sent=saved.followupSent===true;}
+      if(!info.fileId) {
+        status.textContent='Attaching the screenshot to ChatGPT…';
+        const uploaded=await api.uploadFile(file);
+        if(typeof uploaded?.fileId!=='string' || !uploaded.fileId) throw Error('ChatGPT did not return an uploaded image ID. No image attached.');
+        info.fileId=uploaded.fileId;
+      }
+      persist(job,info);info.ready=true;retry.hidden=true;
+      await continueChat(job,info);
+    } catch(error) {status.textContent='No image attached to ChatGPT visual context. '+String(error?.message || error);retry.hidden=false;}
+    finally {info.busy=false;}
+  }
+  retry.onclick=()=>processResult(latest,true);
+  continueButton.onclick=()=>{const job=latest?.structuredContent,info=jobs.get(job?.job_id);if(job&&info?.fileId)return continueChat(job,info);};
+  window.addEventListener('message',event=>{
+    if(event.source!==window.parent || event.data?.jsonrpc!=='2.0') return;
+    const message=event.data;
+    if(message.id!==undefined && requests.has(message.id)) {const r=requests.get(message.id);requests.delete(message.id);clearTimeout(r.timer);message.error?r.reject(Error(message.error.message||'Bridge request failed')):r.resolve(message.result);return;}
+    if(message.method==='ui/notifications/tool-result') void processResult(message.params);
+  });
+  window.addEventListener('openai:set_globals',()=>void processResult(globals()));
+  void rpc('ui/initialize',{appInfo:{name:'PC Link screenshot',version:'1.0.0'},appCapabilities:{},protocolVersion:'2026-01-26'}).then(()=>window.parent.postMessage({jsonrpc:'2.0',method:'ui/notifications/initialized',params:{}},'*')).catch(()=>{});
+  void processResult(globals());
+})();
+</script></body></html>

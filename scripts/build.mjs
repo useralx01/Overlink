@@ -1,0 +1,12 @@
+import { mkdir, copyFile, readFile, writeFile } from 'node:fs/promises';
+await mkdir('dist/server', { recursive: true });
+await mkdir('dist/.openai', { recursive: true });
+const source = await readFile('worker/index.js', 'utf8');
+const cover = 'data:image/png;base64,' + (await readFile('assets/brand/pc-link-cover.png')).toString('base64');
+const icon = 'data:image/png;base64,' + (await readFile('assets/brand/pc-link-icon.png')).toString('base64');
+const html = (await readFile('worker/ui.html', 'utf8')).replaceAll('__PC_LINK_COVER_DATA_URL__', cover).replaceAll('__PC_LINK_ICON_DATA_URL__', icon);
+const screenshotWidget = await readFile('worker/screenshot-widget.html', 'utf8');
+const executable = (await readFile('assets/pc-link.zip')).toString('base64');
+await writeFile('dist/server/index.js', source.replace("'__PC_LINK_PAGE__'", JSON.stringify(html)).replace("'__PC_LINK_APP__'", JSON.stringify(executable)).replace("'__PC_LINK_SCREENSHOT_WIDGET__'", JSON.stringify(screenshotWidget)));
+await copyFile('.openai/hosting.json', 'dist/.openai/hosting.json');
+console.log('Built PC Link');

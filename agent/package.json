@@ -1,0 +1,19 @@
+{
+  "name": "pc-link-browser-agent",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Persistent browser worker for the PC Link Windows launcher",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node browser.mjs",
+    "test": "node browser.mjs --self-test"
+  },
+  "dependencies": {
+    "@playwright/test": "1.64.0",
+    "playwright": "1.64.0",
+    "typescript": "6.0.3"
+  }
+}

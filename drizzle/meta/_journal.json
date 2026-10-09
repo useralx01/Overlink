@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1790787944343,
+      "tag": "0000_rapid_jack_power",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1791545799480,
+      "tag": "0001_past_triathlon",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791546068030,
+      "tag": "0002_daffy_ultragirl",
+      "breakpoints": true
+    }
+  ]
+}

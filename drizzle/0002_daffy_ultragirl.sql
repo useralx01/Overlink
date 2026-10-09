@@ -1,0 +1,1 @@
+ALTER TABLE `jobs` ADD `approved` integer DEFAULT 0 NOT NULL;

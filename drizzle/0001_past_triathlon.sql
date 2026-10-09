@@ -1,0 +1,1 @@
+ALTER TABLE `devices` ADD `capabilities` text DEFAULT '{}' NOT NULL;

@@ -1,0 +1,16 @@
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+dist/
+build/
+.env
+.env.*
+!.env.example
+runtime.json
+device.bin
+*.db
+*.db-*
+*.log
+assets/pc-link.zip
+assets/pc-link.exe
