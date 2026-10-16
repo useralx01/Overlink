@@ -1,3 +1,222 @@
+// Overlink transfer protocol. Account-scoped, idempotent and inert: payloads are data, never commands.
+const MAX_CONTENT = 90000;
+const EXPIRY = 48 * 60 * 60 * 1000;
+const kinds = new Set(['text', 'handoff', 'file']);
+const err = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
+const finiteText = (v, max, name) => {
+  if (typeof v !== 'string' || !v.length || v.length > max || v.includes('\0')) err('Invalid ' + name);
+  return v;
+};
+const digest = async data =>
+  [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data)))]
+    .map(n => n.toString(16).padStart(2, '0')).join('');
+const validName = name => {
+  if (!name) return '';
+  finiteText(name, 180, 'file name');
+  if (!/^[A-Za-z0-9][A-Za-z0-9_. -]{0,179}$/.test(name) || name.includes('..') || name.endsWith(' ') || name.endsWith('.')) err('Invalid file name');
+  return name;
+};
+const info = row => ({
+  id: row.id, from: row.from_device, to: row.target_device, kind: row.kind,
+  title: row.title, filename: row.filename || '', bytes: row.bytes, created: row.created,
+  expires: row.expires, status: row.state
+});
+
+async function sendTransfer(env, account, input, fromDevice = 'chatgpt') {
+  const to = finiteText(input.target_device, 80, 'target device');
+  const content = finiteText(input.content, MAX_CONTENT, 'transfer content');
+  const requestId = finiteText(input.request_id, 128, 'request_id');
+  const kind = input.kind || 'text';
+  if (!kinds.has(kind)) err('Invalid transfer kind');
+  const title = typeof input.title === 'string' && input.title.length ? finiteText(input.title, 128, 'title') : kind;
+  const filename = kind === 'file' ? validName(input.filename) : '';
+  if (kind === 'file' && (!filename || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(content)))
+    err('File transfers require a safe filename and base64 content');
+  const sender = finiteText(fromDevice, 80, 'sender');
+  const device = await env.DB.prepare('SELECT id FROM devices WHERE id=? AND owner=? AND revoked=0')
+    .bind(to, account).first();
+  if (!device) err('Target computer not found', 404);
+  if (sender !== 'chatgpt') {
+    const source = await env.DB.prepare('SELECT id FROM devices WHERE id=? AND owner=? AND revoked=0')
+      .bind(sender, account).first();
+    if (!source) err('Sender computer not found', 403);
+  }
+  const bytes = new TextEncoder().encode(content).length;
+  if (bytes > MAX_CONTENT) err('Transfer too large', 413);
+  const id = await digest('vyrmesh/v1:' + account + ':' + sender + ':' + requestId);
+  const existing = await env.DB.prepare('SELECT * FROM mesh_transfers WHERE id=? AND owner=?')
+    .bind(id, account).first();
+  if (existing) {
+    if (existing.target_device !== to || existing.content !== content || existing.kind !== kind ||
+        existing.title !== title || (existing.filename || '') !== filename) err('request_id reused for different transfer', 409);
+    return info(existing);
+  }
+  const created = Date.now(), expires = created + EXPIRY;
+  await env.DB.prepare('INSERT OR IGNORE INTO mesh_transfers (id,owner,from_device,target_device,kind,title,filename,content,bytes,created,expires,state) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+    .bind(id, account, sender, to, kind, title, filename, content, bytes, created, expires, 'queued').run();
+  const row = await env.DB.prepare('SELECT * FROM mesh_transfers WHERE id=? AND owner=?').bind(id, account).first();
+  if (!row || row.target_device !== to || row.content !== content || row.kind !== kind) err('Transfer collision', 409);
+  return info(row);
+}
+
+async function listTransfers(env, account, targetDevice = null, includeContent = false) {
+  const scope = targetDevice ?
+    await env.DB.prepare('SELECT * FROM mesh_transfers WHERE owner=? AND target_device=? AND expires>? ORDER BY created DESC LIMIT 30')
+      .bind(account, targetDevice, Date.now()).all() :
+    await env.DB.prepare('SELECT * FROM mesh_transfers WHERE owner=? AND expires>? ORDER BY created DESC LIMIT 30')
+      .bind(account, Date.now()).all();
+  return { transfers: scope.results
+    .filter(r => !targetDevice || r.state === 'queued')
+    .slice(0, targetDevice ? 3 : 30)
+    .map(r => includeContent ? { ...info(r), content: r.content } : info(r)) };
+}
+
+async function readTransfer(env, account, id, targetDevice = null) {
+  const row = await env.DB.prepare('SELECT * FROM mesh_transfers WHERE id=? AND owner=?')
+    .bind(finiteText(id, 80, 'transfer id'), account).first();
+  if (!row || row.expires < Date.now() || (targetDevice && row.target_device !== targetDevice))
+    err('Transfer not found or expired', 404);
+  return { ...info(row), content: row.content };
+}
+
+async function acknowledgeTransfer(env, account, id, targetDevice = null) {
+  const item = await readTransfer(env, account, id, targetDevice);
+  if (!targetDevice) targetDevice = item.to;
+  await env.DB.prepare("UPDATE mesh_transfers SET state='delivered',delivered=? WHERE id=? AND owner=? AND target_device=? AND state='queued'")
+    .bind(Date.now(), item.id, account, targetDevice).run();
+  return { ok: true, id: item.id, status: 'delivered' };
+}
+
+const transferTools = [
+  {
+    name: 'send_transfer',
+    description: 'Send selected text, a session handoff, or a small base64 file to another authorized PC. Information only: never executes the content. Keep request_id unchanged on retries. Maximum 90 KB of text.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: {
+      target_device: { type: 'string' },
+      kind: { type: 'string', enum: ['text','handoff','file'] },
+      title: { type: 'string' }, filename: { type: 'string' }, content: { type: 'string' },
+      request_id: { type: 'string' }
+    }, required: ['target_device','content','request_id'] },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }
+  },
+  {
+    name: 'list_transfers', description: 'List transfer metadata for your own connected computers.',
+    inputSchema: { type:'object', properties:{}, additionalProperties:false },
+    annotations: {readOnlyHint:true,openWorldHint:false}
+  },
+  {
+    name: 'read_transfer', description: 'Read a transfer sent within your own account.',
+    inputSchema: {type:'object',properties:{transfer_id:{type:'string'}},required:['transfer_id'],additionalProperties:false},
+    annotations: {readOnlyHint:true,openWorldHint:false}
+  },
+  {
+    name: 'ack_transfer', description: 'Mark a transfer as delivered. Does not execute its content.',
+    inputSchema: {type:'object',properties:{transfer_id:{type:'string'}},required:['transfer_id'],additionalProperties:false},
+    annotations: {readOnlyHint:false,destructiveHint:false,openWorldHint:false}
+  }
+];
+
+const ALLOWED = new Set(['status', 'health', 'list', 'read', 'project']);
+const PROJECT_READS = new Set(['project_status', 'git_diff', 'language_status', 'lsp_symbols', 'lsp_definition']);
+const MAX_BATCH = 8;
+const throwInput = message => { throw Object.assign(new Error(message), { status: 400 }); };
+
+async function inspectBatch(env, account, entries, enqueue) {
+  if (!Array.isArray(entries) || entries.length < 1 || entries.length > MAX_BATCH)
+    throwInput('batch_inspect expects between one and eight inspections');
+  const checked = entries.map((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throwInput('Invalid inspection');
+    if (!ALLOWED.has(entry.operation)) throwInput('Only read-only PC inspections are supported');
+    if (typeof entry.device_id !== 'string' || !/^[a-f0-9-]{36}$/i.test(entry.device_id))
+      throwInput('Invalid device identifier');
+    const args = entry.args === undefined ? {} : entry.args;
+    if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length > 12)
+      throwInput('Inspection args must be a small object');
+    for (const key of Object.keys(args))
+      if (['request_id','device_id','computer_id','approved','allowJavaScript','root'].includes(key))
+        throwInput('Reserved inspection argument');
+    if (entry.operation === 'project' && !PROJECT_READS.has(args.action))
+      throwInput('Only read-only project inspection actions are allowed');
+    if (entry.operation === 'read' && (typeof args.path !== 'string' || !args.path))
+      throwInput('Read inspection requires a path');
+    if (entry.operation === 'list' && args.path !== undefined && typeof args.path !== 'string')
+      throwInput('Invalid list path');
+    return { index, operation: entry.operation, device_id: entry.device_id, args };
+  });
+  const responses = await Promise.all(checked.map(async item => {
+    try {
+      const response = await enqueue(env, account, item.operation,
+        { ...item.args, device_id: item.device_id });
+      return { index: item.index, operation: item.operation, device_id: item.device_id, ...response };
+    } catch (error) {
+      return { index: item.index, operation: item.operation, device_id: item.device_id,
+        status: 'error', error: error.message || 'Inspection unavailable' };
+    }
+  }));
+  return { items: responses, count: responses.length };
+}
+
+async function pollBatch(env, account, ids, resultFn) {
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > 10 ||
+      ids.some(id => typeof id !== 'string' || !/^[a-f0-9-]{36,64}$/i.test(id)))
+    throwInput('poll_jobs expects one to ten valid job identifiers');
+  const jobs = await Promise.all(ids.map(async job_id => {
+    try { return await resultFn(env, account, job_id, 0); }
+    catch (error) { return { job_id, status: 'error', error: error.message }; }
+  }));
+  return { jobs };
+}
+
+function aggregateMetrics(rows) {
+  const values = new Map();
+  for (const row of rows) {
+    if (!row || typeof row.operation !== 'string') continue;
+    const start = Number(row.created), completed = Number(row.completed);
+    const latency = completed - start;
+    if (!Number.isFinite(latency) || latency < 0 || latency > 3_600_000) continue;
+    if (!values.has(row.operation)) values.set(row.operation, []);
+    values.get(row.operation).push(latency);
+  }
+  const operations = [...values].map(([operation, latencies]) => {
+    latencies.sort((a,b) => a-b);
+    const percentile = p => latencies[Math.max(0,Math.ceil(latencies.length*p)-1)];
+    return { operation, count: latencies.length,
+      p50_ms: percentile(.5), p95_ms: percentile(.95),
+      mean_ms: Math.round(latencies.reduce((sum,x)=>sum+x,0)/latencies.length),
+      max_ms:latencies[latencies.length-1] };
+  });
+  return { operations: operations.sort((a,b)=>b.count-a.count),
+    scope: 'completed relay jobs, recent 7 days (maximum 200 samples)',
+    note: 'Includes queueing and processing; excludes time spent thinking in the model' };
+}
+
+async function jobMetrics(env, account) {
+  const rows = await env.DB.prepare(
+    'SELECT operation,created,completed FROM jobs WHERE owner=? AND completed>? AND completed IS NOT NULL ORDER BY completed DESC LIMIT 200'
+  ).bind(account, Date.now()-7*24*3600_000).all();
+  return aggregateMetrics(rows.results || []);
+}
+
+const performanceTools = [
+  {
+    name:'batch_inspect',
+    description:'Perform 1–8 independent READ-ONLY device inspections in parallel in one MCP tool call. entries: [{device_id,operation:"status"|"health"|"list"|"read"|"project", args?}]. For project only read-only actions are accepted. Responses may contain pending job IDs; use poll_jobs without resubmitting.',
+    inputSchema:{ type:'object', additionalProperties:false,
+      properties:{entries:{type:'array',minItems:1,maxItems:8,items:{type:'object'}}},required:['entries'] },
+    annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}
+  },
+  {
+    name:'poll_jobs', description:'Check up to 10 previously queued job IDs concurrently. Never resubmit a mutation while pending.',
+    inputSchema:{type:'object',additionalProperties:false,properties:{job_ids:{type:'array',minItems:1,maxItems:10,items:{type:'string'}}},required:['job_ids']},
+    annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}
+  },
+  {
+    name:'performance_metrics', description:'Get p50/p95/mean relay latency statistics by operation from recent completed jobs, without exposing logs or command content.',
+    inputSchema:{type:'object',additionalProperties:false,properties:{}},
+    annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:false}
+  }
+];
+
 const PAGE = '__PC_LINK_PAGE__';
 const APP = '__PC_LINK_APP__';
 const SCREENSHOT_WIDGET = '__PC_LINK_SCREENSHOT_WIDGET__';
@@ -67,8 +286,14 @@ async function computers(env, account) {
 const browserReads = new Set(['status', 'sessions', 'tabs', 'snapshot', 'screenshot', 'logs', 'downloads']);
 const projectReads = new Set(['project_status', 'git_diff', 'language_status', 'lsp_symbols', 'lsp_definition']);
 function mutating(operation, args) {
-  if (['list', 'read', 'status', 'screen', 'ui_inspect', 'audit', 'task_history'].includes(operation)) return false;
+  if (['list', 'read', 'status', 'health', 'screen', 'ui_inspect', 'audit', 'task_history'].includes(operation)) return false;
   if (operation === 'windows') return (args.action || 'list') !== 'list';
+  if (operation === 'code_index') return args.action === 'index';
+  if (operation === 'workflow') {
+    if (args.action !== 'execute') return false;
+    return !Array.isArray(args.steps) || args.steps.some(s => !s || typeof s !== 'object' || ['write','replace','rollback','test'].includes(s.op));
+  }
+  if (operation === 'codex') return args.action !== 'list';
   if (operation === 'browser') return !browserReads.has(args.action);
   if (operation === 'project') return !projectReads.has(args.action);
   if (operation === 'memory') return !['search', 'memory_search'].includes(args.action);
@@ -78,11 +303,34 @@ function mutating(operation, args) {
 function checkCapability(device, operation, args) {
   const c = capabilities(device.capabilities);
   if (operation === 'run' && (!device.terminal || c.terminal === false)) fail('Terminal access is disabled on this PC.');
+  if (operation === 'code_index') {
+    if (!device.terminal || c.terminal !== true || c.projectTools !== true) fail('Code indexing needs project/terminal permissions.');
+    return;
+  }
+  if (operation === 'file_send') {
+    if (!device.terminal || c.terminal !== true || c.fileWrite !== true) fail('File sending is disabled on this PC.');
+    return;
+  }
+  if (operation === 'workflow') {
+    if (!device.terminal || c.terminal !== true) fail('Local workflow requires terminal permission.');
+    if (mutating(operation,args) && c.fileWrite !== true && args.steps?.some(s => ['write','replace','rollback'].includes(s.op)))
+      fail('File editing is disabled on this device.');
+    return;
+  }
+  if (operation === 'codex') {
+    if (!device.terminal || c.terminal !== true) fail('Codex session inspection needs terminal permission.');
+    if (args.action === 'handoff' && c.fileWrite !== true) fail('Codex handoff needs file-transfer permission.');
+    return;
+  }
+  if (operation === 'recovery') {
+    if (!device.terminal || c.terminal !== true || c.desktopView !== true) fail('Recovery needs terminal and PC inspection permissions.');
+    return;
+  }
   if (operation === 'write' && c.fileWrite === false) fail('File writing is disabled on this PC.');
   if (['list', 'read', 'write', 'run'].includes(operation)) return;
   if (Number(c.version || 0) < 2) fail('Update the PC Link launcher on this PC to use computer-agent tools.');
   let required;
-  if (['screen', 'ui_inspect'].includes(operation) || (operation === 'windows' && !mutating(operation, args))) required = 'desktopView';
+  if (['health', 'screen', 'ui_inspect'].includes(operation) || (operation === 'windows' && !mutating(operation, args))) required = 'desktopView';
   else if (['windows', 'ui_action', 'desktop_input'].includes(operation)) required = 'desktopInput';
   else if (operation === 'browser') required = 'browserControl';
   else if (operation === 'project') required = 'projectTools';
@@ -145,18 +393,26 @@ const tools = [
   { name: 'get_job', description: 'Get a pending result, including images or approval status. Never resubmit a mutation because a result is pending.', inputSchema: schema({ job_id: str('Job ID from the prior operation.') }, ['job_id']), annotations: { readOnlyHint: true, openWorldHint: false },_meta:{ui:{visibility:['model','app']},'openai/widgetAccessible':true} },
   { name:'show_screenshot', description:'Open an existing screenshot in a ChatGPT image attachment widget. Use the screenshot or browser screenshot job_id when regular ChatGPT cannot visually inspect the raw image block. The widget uploads the actual image to the current ChatGPT chat and attaches its returned file ID for the next turn. Do not claim visual inspection before receiving the image. Does not capture another screenshot.',inputSchema:schema({job_id:str('Existing screenshot job ID.')},['job_id']),annotations:{readOnlyHint:true,openWorldHint:false,destructiveHint:false},_meta:screenshotUi },
   generic('pc_status', 'status', 'Inspect launcher version, runtimes, and capability settings.', true, false),
+  generic('pc_health', 'health', 'Read RAM, disks, and highest-memory processes on this computer. Requires screen inspection permission.', true, false),
+  generic('pc_recover', 'recovery', 'Stop a specific locally allowlisted process on a PC. args: action=terminate_approved_process, pid, expected_name, expected_started_utc copied from a recent pc_health report. Always requires a human approval in the launcher/dashboard.', false, true),
+  generic('send_pc_file','file_send','Send a UTF-8 or binary file smaller than 60 KB from this PC shared folder to another paired PC, with explicit approval and immutable receipt. args.path and args.target_device; stable request_id required. Receiver saves in Overlink/received without executing it.',false,false),
+  generic('code_index', 'code_index', 'Index and search the selected shared project using local incremental SQLite FTS. action=index|search|status|context, args.query and args.limit; update_first=true refreshes before searching. Never indexes credential files.', false, true),
+  generic('workflow', 'workflow', 'Execute an approved bounded local DAG in ONE round trip. action=describe|execute; args.steps is an array of up to 24 {id,op,depends_on?,path?,...} objects. Reads/searches/symbols/Git may parallelize. Mutations use sha256 preconditions, atomic writes, backups, and required human approval; approved test runners only. Never supply root or permission flags.', false, true),
+  generic('codex_sessions', 'codex', 'Codex session discovery and approved transfer. Actions: list (metadata only), snapshot (last 58KB of JSONL text), handoff (send last 58KB to another paired device). args: path from list, target_device for handoff. Reading content and handoff always require human approval in the Windows launcher/dashboard.', false, true),
   generic('screenshot', 'screen', 'See the Windows desktop. args: target (all/primary/monitor/active/window), monitor_index, window_id, max_width (320–1600). A completed result includes an actual MCP image block plus screenshot_id, offsets, and scale for coordinate input. If queued or running, call get_job until complete. Read the image block, not just structuredContent metadata; forward or display it when the user asks to see the screenshot.', true, false),
   generic('windows', 'windows', 'Actions: list, activate, minimize, maximize, restore. Mutation args: window_id from the current window list. list is read-only.'),
   generic('ui_inspect', 'ui_inspect', 'Inspect Windows UI Automation controls. args: window_id, depth, max_elements. Returns snapshot_id and control refs; use current refs for ui_action.', true, false),
   generic('ui_action', 'ui_action', 'Actions: focus, invoke, set_value, select, toggle, expand, collapse. args: snapshot_id, element_id, value for set_value. Use element IDs from a recent ui_inspect result.'),
   generic('desktop_input', 'desktop_input', 'Actions: move, click, scroll, type, key. Coordinate args need x/y and expected_screenshot_id from a recent screenshot. Typing/keys require the current foreground window_id. Interpret image offsets and scale.'),
-  generic('browser', 'browser', 'Playwright actions: status, launch (browser edge/chrome), connect (explicitAttach=true, loopback endpoint), sessions, tabs, new_tab, close_tab, goto, snapshot, click, fill, type, press, scroll, evaluate, screenshot, logs, dialog, downloads, save_download, close_session. args use sessionId/pageId. Ref actions require ref and expectedSnapshot=snapshotId. Alternative locator: {role,name}, {label}, {text}, {placeholder}, {testId}, {selector}. Text uses text, key uses key, navigation uses url. evaluate needs locally enabled browserDebug and expression. Managed profiles are separate; Engomo webpages can open by URL. Save downloads with downloadId/path relative to the shared folder.'),
+  generic('browser', 'browser', 'Playwright actions: batch (up to 6 approved actions in one call with a final snapshot; args.steps=[{action,locator?,...}]), status, launch (browser edge/chrome), connect (explicitAttach=true, loopback endpoint), sessions, tabs, new_tab, close_tab, goto, snapshot, click, fill, type, press, scroll, evaluate, screenshot, logs, dialog, downloads, save_download, close_session. args use sessionId/pageId. Ref actions require ref and expectedSnapshot=snapshotId. Alternative locator: {role,name}, {label}, {text}, {placeholder}, {testId}, {selector}. Text uses text, key uses key, navigation uses url. evaluate needs locally enabled browserDebug and expression. Managed profiles are separate; Engomo webpages can open by URL. Save downloads with downloadId/path relative to the shared folder.'),
   generic('project', 'project', 'Project/code intelligence actions: project_status, git_diff, language_status, lsp_symbols, lsp_definition. Test runner commands are discovered here and executed with run_command. Paths stay within the selected shared project.'),
   generic('memory', 'memory', 'Explicit project memory actions: search, put, delete. args: query/limit for search; title/text/tags for put; memory_id and optional expected_version for delete. Put/delete require request_id. Do not save secrets or entire chat history.'),
   generic('audit', 'audit', 'Read metadata-only local audit entries. args: limit. Logs omit command contents, typed text, credentials, and memory content.', true, false),
   generic('task_history', 'task_history', 'Read persistent local job states and results. args: job_id, limit. Interrupted mutations are never automatically replayed.', true, false),
   generic('devices', 'devices', 'Actions http_request, mqtt_subscribe, mqtt_publish for named local connections. args.connection selects a local connection; args.path/method/json or topic/payload. Writes require request_id. TLS and locally configured path/topic allowlists apply. No device is discovered or paired automatically.')
 ];
+tools.push(...transferTools);
+tools.push(...performanceTools);
 tools.find(tool=>tool.name==='screenshot')._meta=screenshotUi;
 const definitions = new Map(tools.map(tool => [tool.name, tool]));
 const operationNames = { list_files: 'list', read_file: 'read', write_file: 'write', run_command: 'run' };
@@ -174,7 +430,7 @@ function argumentsFor(name, input) {
   if (!definition?.operation) fail('Unknown tool');
   const params = input.args === undefined ? {} : input.args;
   if (!object(params)) fail('args must be a JSON object');
-  for (const key of ['action', 'device_id', 'computer_id', 'request_id', 'approved', '_approved', 'allowJavaScript']) if (key in params) fail(`Put ${key} only in its documented top-level field; approval and permission flags are not tool arguments.`);
+  for (const key of ['action', 'device_id', 'computer_id', 'request_id', 'approved', '_approved', 'allowJavaScript', 'allow_write', 'allow_tests', 'root']) if (key in params) fail(`Put ${key} only in its documented top-level field; approval and permission flags are not tool arguments.`);
   const args = { ...params, device_id: text(input.device_id, 80) };
   if (input.action !== undefined) args.action = text(input.action, 64);
   if (definition.inputSchema.required.includes('action') && !args.action) fail('Action required');
@@ -206,7 +462,7 @@ async function mcp(req, env) {
   const request = await body(req), account = owner(req, env);
   const reply = response => json({ jsonrpc: '2.0', id: request.id, result: response });
   if (request.id === undefined) return new Response(null, { status: 202 });
-  if (request.method === 'initialize') return reply({ protocolVersion: '2025-03-26', capabilities: { tools: {},resources:{} }, serverInfo: { name: 'PC Link', version: '2.1.0' }, instructions: 'Call list_computers first. Screenshots include actual image blocks and a ChatGPT attachment widget. Metadata alone is not visual input. If you cannot inspect a screenshot, use show_screenshot with its job_id; the widget attaches a genuine uploaded file ID for the next chat turn. Do not claim to see an image until visual input arrives. Use get_job for pending work, never repeat a mutation. Files use the shared folder; PowerShell runs as the Windows user. Inspect before desktop/browser actions and use recent screenshot/UI refs. All mutations need a unique request_id preserved on retries. Approval pending requires the human to approve in their launcher/dashboard; the assistant must never approve its own action.' });
+  if (request.method === 'initialize') return reply({ protocolVersion: '2025-03-26', capabilities: { tools: {},resources:{} }, serverInfo: { name: 'Overlink', version: '0.3.0' }, instructions: 'Call list_computers first. Screenshots include actual image blocks and a ChatGPT attachment widget. Metadata alone is not visual input. If you cannot inspect a screenshot, use show_screenshot with its job_id; the widget attaches a genuine uploaded file ID for the next chat turn. Do not claim to see an image until visual input arrives. Use get_job for pending work, never repeat a mutation. Files use the shared folder; PowerShell runs as the Windows user. Inspect before desktop/browser actions and use recent screenshot/UI refs. All mutations need a unique request_id preserved on retries. Approval pending requires the human to approve in their launcher/dashboard; the assistant must never approve its own action.' });
   if (request.method === 'ping') return reply({});
   if (request.method === 'tools/list') return reply({ tools: tools.map(({ operation, ...tool }) => tool) });
   if(request.method==='resources/list')return reply({resources:[{uri:SCREENSHOT_URI,name:'PC Link screenshot',mimeType:'text/html;profile=mcp-app',description:'View and attach a screenshot to the current ChatGPT chat.'}]});
@@ -219,6 +475,13 @@ async function mcp(req, env) {
     const input = request.params?.arguments || {}, name = request.params?.name;
     let response;
     if (name === 'list_computers') response = { computers: await computers(env, account) };
+    else if (name === 'batch_inspect') response = await inspectBatch(env, account, input.entries, enqueue);
+    else if (name === 'poll_jobs') response = await pollBatch(env, account, input.job_ids, result);
+    else if (name === 'performance_metrics') response = await jobMetrics(env, account);
+    else if (name === 'send_transfer') response = await sendTransfer(env, account, input);
+    else if (name === 'list_transfers') response = await listTransfers(env, account);
+    else if (name === 'read_transfer') response = await readTransfer(env, account, input.transfer_id);
+    else if (name === 'ack_transfer') response = await acknowledgeTransfer(env, account, input.transfer_id);
     else if (name === 'get_job' || name==='show_screenshot') {
       response = await result(env, account, input.job_id);
       if(name==='show_screenshot'&&response.status==='done'&&!response.result?.image)fail('This job has no screenshot image.');
@@ -287,7 +550,7 @@ async function cleanup(env) {
 export default { async fetch(req, env) {
   try {
     const path = new URL(req.url).pathname;
-    if (path === '/download' && req.method === 'GET') return new Response(Uint8Array.from(atob(APP), c => c.charCodeAt(0)), { headers: { 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="PC Link.zip"', 'cache-control': 'no-store' } });
+    if (path === '/download' && req.method === 'GET') return new Response(Uint8Array.from(atob(APP), c => c.charCodeAt(0)), { headers: { 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="Overlink.zip"', 'cache-control': 'no-store' } });
     if (path === '/mcp' && req.method === 'POST') return await mcp(req, env);
     if (path === '/mcp') return new Response(null, { status: 405, headers: { Allow: 'POST' } });
     if (path === '/' || path === '/pair') return new Response(PAGE, { headers: { 'content-type': 'text/html;charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'content-security-policy': "default-src 'self'; img-src 'self' data:; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' http://127.0.0.1:*; frame-ancestors 'self' https://chatgpt.com" } });
@@ -298,8 +561,11 @@ export default { async fetch(req, env) {
       if (!inserted.meta.changes) fail('Initial setup already used', 409);
       await insertDevice(env, device.row); return json(device.config);
     }
-    if (['/device/poll', '/device/heartbeat', '/device/pending', '/device/approve', '/device/result'].includes(path) && req.method === 'POST') {
+    if (['/device/poll', '/device/heartbeat', '/device/pending', '/device/approve', '/device/result', '/device/inbox', '/device/transfer/ack', '/device/transfer/send'].includes(path) && req.method === 'POST') {
       const input = await body(req), device = await authorizeDevice(req, env, input.id);
+      if (path === '/device/inbox') return json(await listTransfers(env, device.owner, device.id, true));
+      if (path === '/device/transfer/ack') return json(await acknowledgeTransfer(env, device.owner, input.transfer_id, device.id));
+      if (path === '/device/transfer/send') return json(await sendTransfer(env, device.owner, input, device.id));
       if (path === '/device/pending') return json(await pending(env, device.owner, device.id));
       if (path === '/device/approve') return json(await approve(env, device.owner, input, device.id));
       if (path === '/device/heartbeat' || path === '/device/poll') {
@@ -326,6 +592,8 @@ export default { async fetch(req, env) {
     }
     const account = owner(req, env);
     if (path === '/api/devices' && req.method === 'GET') return json({ computers: await computers(env, account) });
+    if (path === '/api/transfers' && req.method === 'GET') return json(await listTransfers(env, account));
+    if (path === '/api/performance' && req.method === 'GET') return json(await jobMetrics(env, account));
     if (path === '/api/inspect' && req.method === 'POST') {
       browserMutation(req);const input=await body(req);
       if (!['status','screen'].includes(input.operation)) fail('Only status and screenshot inspection are available here.');

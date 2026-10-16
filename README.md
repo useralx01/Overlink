@@ -1,69 +1,93 @@
-<p align="center"><img src="assets/brand/pc-link-icon.png" alt="Relay cyan chain icon" width="96"></p>
+# Overlink
 
-# Relay
+**Every computer. Every AI. One connection.**
 
-**Your PC. One conversation.**
+Overlink connects authorized Windows computers to ChatGPT and Codex through an authenticated MCP relay. It extends the original PC Link project with cross-PC context transfers, Codex session handoffs, diagnostics, guarded recovery, batched local workflows, and a latency dashboard.
 
-![Relay — a desktop and phone connected by a glowing cyan link](assets/brand/pc-link-cover.png)
+> **Developer preview (v0.4.1).** This repository contains source code and self-hosting tools. It is not a publicly approved ChatGPT plugin or a general-purpose multi-tenant SaaS product.
 
-Relay connects ChatGPT to your own Windows computer: files, PowerShell, screenshots, browser automation, desktop input, window inspection, project tools, and local project memory. It includes the Windows controller, a hosted MCP backend, and the dashboard.
+## What it does
 
-This repository is the source for **your own private deployment**. Each person deploys their own backend and registers their own ChatGPT app. It does not share the original developer's computer or account, and it does not transfer Codex usage to ChatGPT.
-
-## What's included
-
-| Component | Implementation |
+| Capability | Details |
 | --- | --- |
-| Windows controller | C# / .NET Framework, screenshots, UI Automation, mouse and keyboard |
-| Terminal and files | PowerShell and a configured shared directory |
-| Browser | Persistent Node.js / Playwright worker |
-| Project tools | Git, TypeScript, Python language server |
-| Memory and task journal | Local SQLite with search and audit records |
-| External devices | Configured HTTP / MQTT connections |
-| Hosted backend | Fetch-compatible Worker, SQLite/D1 and object storage |
-| Dashboard | Responsive Relay interface and the cyan chain artwork |
+| Remote PC control | Screenshots, Windows UI Automation, mouse/keyboard, terminal, files, browser automation |
+| Multiple computers | Register/pair several devices for one authenticated owner |
+| Device-to-device transfers | Send small text/context/file payloads through a queued relay; acknowledgments and expiry |
+| Codex session handoff | Find a session and send a bounded recent JSONL context snapshot to another paired PC |
+| PC diagnostics | RAM utilization, sampled CPU utilization, available disks, and top memory-consuming processes |
+| Guarded recovery | Stop a specifically allowlisted process only after explicit local approval and identity checks |
+| Efficient local execution | Bounded 24-step workflows, dependent operations, parallel reads, hash-verified patches, test runners |
+| Code navigation | Local incremental SQLite FTS index, Git inspection, and language-server assistance |
+| Browser batching | Combine up to six supported browser actions with a final snapshot |
+| Observability | Task history, device status, and relay p50/p95 latency metrics |
 
-## Build your Windows bundle
+An Overlink context handoff **does not migrate a running Codex process**, preserve its RAM state, or automatically execute transferred content. A computer that is shut down or has crashed cannot be remotely inspected by its software agent.
 
-Requirements: Windows, .NET Framework 4 compiler, Node.js 22 or newer, and Python 3.11 or newer. The installer can install Python, Node.js and Git through winget if needed.
+## Repository structure
 
-Clone or download this repository, then run from its root in PowerShell:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-windows.ps1 -Origin 'https://your-relay-host.example'
-node scripts/build.mjs
-node scripts/validate-artifact.mjs
+```text
+agent/                Local Python/Node helpers and safe Windows staging scripts
+native/               Windows controller, file inbox, Codex reader, guarded recovery
+worker/               Authenticated MCP / HTTPS relay and dashboard
+db/                   Drizzle database schema
+drizzle/              SQL migrations and migration journal
+plugin-template/      Example plugin metadata (configure your own endpoint)
+tests/                Server, agent, security and integration tests
+scripts/              Build and artifact validation utilities
+assets/brand/          Brand assets
 ```
 
-The first command compiles `native/PCLink.cs`, `DesktopTools.cs` and `AgentBridge.cs`, embeds the Relay icon, and creates `assets/pc-link.zip`. The native controller's server origin is compiled from your `-Origin` argument. Use the exact HTTPS origin of your own deployment. The backend build embeds this ZIP, both brand images, the dashboard and the screenshot widget in `dist/server/index.js`.
+## Build and test
 
-The existing `PC Link` filenames and protocol identifiers remain compatible with the original controller. The public product name is Relay.
-
-## Deploy and connect
-
-1. Create your own hosted Worker / Sites deployment with a SQLite/D1 binding named `DB` and object-storage binding named `IMAGES`. Apply the SQL migrations in `drizzle/` in numbered order.
-2. Set `PC_LINK_OWNER_EMAIL` to your ChatGPT login email and `PC_LINK_ORIGIN` to your deployment's HTTPS origin. Set separate random secrets for `PC_LINK_TRANSPORT_TOKEN` and `PC_LINK_SETUP_KEY` using the host's secret settings. `.env.example` lists the names; it is not a credential file.
-3. Deploy `dist/server/index.js` as an ES module exporting `default.fetch`. `.openai/hosting.json` provides the generic Sites bindings; associate it with **your own** project using that platform's deployment workflow.
-4. The host must authenticate the ChatGPT account and supply trusted `oai-authenticated-user-id` and `oai-authenticated-user-email` headers. The backend expects the Sites authentication gateway. Do not expose it directly with client-controlled identity headers. Other hosts require an authentication gateway that strips and replaces those headers.
-5. Register your own ChatGPT app pointing at your deployment's `/mcp` endpoint, with the authentication/transport configuration required by your hosting gateway. Add it through the app/plugin connection interface available to your account. The `plugin-template/` folder documents the optional branding package and app-ID placeholder.
-6. Download the Windows bundle from your deployment or extract `assets/pc-link.zip`, and run `agent/Start-PC-Link.cmd`. It installs the local dependencies and starts the controller. Select a shared folder and use the controller's pairing button to connect it to your deployment.
-7. In ChatGPT, enable your app and request a computer list or screenshot. In the dashboard, verify that your computer is online.
-
-The controller runs in your signed-in Windows session with a startup launcher; desktop interaction requires that session to be available. It is not a Windows service. Capability toggles, approval mode and device connections are configured in the controller. The exported controller retains its existing defaults: capabilities enabled and per-action approval disabled.
-
-## Validate the source
+For a Windows build, install Node.js 22+, Python 3.11+, Git, and the .NET Framework 4 compiler. From the repository root:
 
 ```powershell
-node --test tests/worker.test.mjs tests/screenshot-widget.test.mjs
-python -m unittest discover -s tests -p '*_test.py'
+npm ci
+npm test
+python -m unittest discover -s tests -p '*test.py'
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1 -Origin 'https://YOUR-PRIVATE-HOST'
+npm run build
+npm run validate
 ```
 
-The project tests require the Python dependencies and Node browser-agent dependencies to be installed. Install them in your own environment with `pip install -r agent/requirements.txt` and `npm ci --prefix agent`. For Playwright-managed browsers, run `npx --prefix agent playwright install chromium`.
+Browser tests require Playwright dependencies inside `agent/`:
 
-## Current scope
+```powershell
+npm ci --prefix agent
+node agent/browser.mjs --self-test
+```
 
-Each deployment accepts one owner account. Public multi-account hosting is not implemented. Screenshot capture, storage, rendering and attachment are distinct steps; delivery into the model's visual input depends on the ChatGPT host supporting the widget upload/attachment path. The source tests use a mock host and do not prove that every ChatGPT mode receives image pixels.
+Use `agent/Start-Overlink.cmd` inside the compiled Windows bundle to stage the desktop agent. The installer stages into `%LOCALAPPDATA%\Overlink\app` without terminating a running legacy PC Link controller. It does **not** activate a second paired agent over an existing connection. Before a production cutover, finish in-flight commands and verify the relay is compatible.
 
-This GitHub repository uses the correct Relay cyan chain icon and cover. The existing hosted ChatGPT plugin listing's folder fallback is a separate platform rendering issue.
+## Self-hosting
 
-No private app registration, device credentials, personal machine configuration or dependency caches are included.
+The server is a Worker-style module intended for an authenticated environment with D1 `DB` and R2 `IMAGES` bindings. Do not deploy the raw Worker directly to the internet without an authenticated gateway.
+
+1. Provision an HTTPS endpoint and database/object-storage bindings.
+2. Set the required server-side environment variables using secure secrets management. See `.env.example`; never commit real values.
+3. Apply the SQL migrations in `drizzle/` in numerical order. The `0003_overlink_transfers.sql` migration adds a transfer queue without dropping legacy tables.
+4. Build the server with `npm run build`, then validate with `npm run validate`.
+5. Build the Windows app using **your own HTTPS origin** and pair each device through the authenticated dashboard.
+6. Register `/mcp` through the supported ChatGPT/Codex MCP integration for your host. Public plugin submission is a separate process.
+
+The `PC_LINK_*` environment-variable names and older `/device/*` routes are retained for backward compatibility.
+
+## Security and limitations
+
+- **Single-owner design:** this source is not ready to host unrelated users under one deployment. Public distribution as a service requires proper per-tenant OAuth and access isolation.
+- **No end-to-end encryption for the transfer queue:** transfer payloads may be readable in the backend database. Do not send passwords, API keys, confidential records, or unredacted session histories through this preview.
+- **Explicit execution boundaries:** file/session transfers are data only. Sensitive operations require device permissions; process termination additionally requires local allowlisting and approval.
+- **Safe retries:** use stable `request_id` values and review uncertain jobs before retrying. Never blindly replay destructive commands.
+- **Device ownership:** only use Overlink with systems and accounts you control or have authorization to access.
+
+See [SECURITY.md](SECURITY.md) before exposing the server to the internet.
+
+## Project status
+
+The private Windows integration has been tested on two paired machines, including remote desktop/tool calls and synthetic bidirectional file and session transfers. The published backend and desktop agent require environment-specific authentication and deployment; this GitHub repository by itself does not configure or grant access to any PC.
+
+GitHub source is provided without a redistribution license at this stage. A license can be selected before inviting outside contributions.
+
+---
+
+Overlink builds on PC Link, keeping legacy code-path names where necessary to avoid breaking established clients.

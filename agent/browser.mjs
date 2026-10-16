@@ -222,11 +222,52 @@ async function closeAll() {
   await Promise.allSettled([...sessions.values()].filter(s => !s.closed).map(closeSession));
 }
 
-export const browserActions = ['status', 'launch', 'connect', 'sessions', 'tabs', 'new_tab', 'close_tab', 'goto', 'snapshot', 'click', 'fill', 'type', 'press', 'scroll', 'evaluate', 'screenshot', 'logs', 'dialog', 'downloads', 'save_download', 'close_session'];
+export const browserActions = ['batch', 'status', 'launch', 'connect', 'sessions', 'tabs', 'new_tab', 'close_tab', 'goto', 'snapshot', 'click', 'fill', 'type', 'press', 'scroll', 'evaluate', 'screenshot', 'logs', 'dialog', 'downloads', 'save_download', 'close_session'];
 export async function handleBrowser(args, root) {
   if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Invalid browser arguments');
   const action = str(args.action, 'browser action', 40);
   if (!browserActions.includes(action)) throw new Error('Unknown browser action');
+  if (action === 'batch') {
+    const steps = args.steps;
+    const permitted = new Set(['goto','click','fill','type','press','scroll']);
+    if (!Array.isArray(steps) || steps.length < 1 || steps.length > 6)
+      throw new Error('Browser batch requires between 1 and 6 actions');
+    if (!args.sessionId || !args.pageId) throw new Error('Browser batch requires existing sessionId and pageId');
+    let totalText = 0;
+    for (const step of steps) {
+      if (!step || typeof step !== 'object' || Array.isArray(step) || !permitted.has(step.action))
+        throw new Error('Batch supports only goto, click, fill, type, press, or scroll');
+      for (const key of ['sessionId','pageId','allowJavaScript','expression','root','steps']) {
+        if (Object.prototype.hasOwnProperty.call(step,key))
+          throw new Error('Nested batch operation cannot override session, page or permissions');
+      }
+      totalText += typeof step.text === 'string' ? step.text.length : 0;
+    }
+    if (totalText > 3000) throw new Error('Batch text exceeds input limit');
+    const completed=[];
+    for (let index=0; index<steps.length; index++) {
+      const step=steps[index];
+      try {
+        const result=await handleBrowser({
+          ...step, sessionId:args.sessionId, pageId:args.pageId, allowJavaScript:false
+        }, root);
+        completed.push({index,action:step.action,ok:true,...(result.httpStatus !== undefined ? {httpStatus:result.httpStatus}:{})});
+      } catch(error) {
+        return {ok:false,partial:true,completed,failed_step:index,
+          error:String(error.message || error).slice(0,300),
+          next:'Inspect the current page. Never replay an uncertain browser mutation blindly.'};
+      }
+    }
+    try {
+      const current = await handleBrowser({
+        sessionId:args.sessionId,pageId:args.pageId,action:'snapshot',limit:12000
+      },root);
+      return {ok:true,count:completed.length,completed,snapshot:current};
+    } catch(error) {
+      return {ok:true,count:completed.length,completed,
+        snapshot_error:String(error.message || error).slice(0,200)};
+    }
+  }
   if (action === 'status' || action === 'sessions') {
     const installed = [];
     const candidates = {
@@ -391,6 +432,17 @@ async function selfTest() {
     await assert.rejects(() => handleBrowser({ ...base, action: 'fill', ref: nameRef, expectedSnapshot: snap.snapshotId, text: 'stale' }, temp), /Stale/);
     await handleBrowser({ ...base, action: 'click', locator: { role: 'button', name: 'Save' } }, temp);
     assert.equal(await page.locator('#result').innerText(), 'Browser test passed');
+    const batched = await handleBrowser({...base, action:'batch', steps:[
+      {action:'fill',locator:{role:'textbox',name:'Name'},text:'Batch test passed'},
+      {action:'click',locator:{role:'button',name:'Save'}}
+    ]},temp);
+    assert.equal(batched.ok,true);
+    assert.equal(batched.count,2);
+    assert.equal(await page.locator('#result').innerText(),'Batch test passed');
+    await assert.rejects(()=>handleBrowser({...base,action:'batch',steps:[
+      {action:'evaluate',expression:'window.location.href'}
+    ]},temp),/Batch supports/);
+
     const img = await handleBrowser({ ...base, action: 'screenshot' }, temp);
     assert.equal(img.image.mimeType, 'image/jpeg'); assert.equal(img.image.width, 1100); assert.ok(Buffer.from(img.image.data, 'base64').length < 180000);
     await assert.rejects(() => handleBrowser({ ...base, action: 'evaluate', expression: 'document.title' }, temp), /permission/);

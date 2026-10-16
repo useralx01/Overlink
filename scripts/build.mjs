@@ -9,4 +9,4 @@ const screenshotWidget = await readFile('worker/screenshot-widget.html', 'utf8')
 const executable = (await readFile('assets/pc-link.zip')).toString('base64');
 await writeFile('dist/server/index.js', source.replace("'__PC_LINK_PAGE__'", JSON.stringify(html)).replace("'__PC_LINK_APP__'", JSON.stringify(executable)).replace("'__PC_LINK_SCREENSHOT_WIDGET__'", JSON.stringify(screenshotWidget)));
 await copyFile('.openai/hosting.json', 'dist/.openai/hosting.json');
-console.log('Built PC Link');
+console.log('Built Overlink');

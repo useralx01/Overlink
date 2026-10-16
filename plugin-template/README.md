@@ -1,6 +1,6 @@
-# Relay plugin template
+# Overlink plugin template
 
-Use this after registering **your own** ChatGPT app for your Relay deployment. This template contains no account-specific app registration.
+Use this after registering **your own** ChatGPT app for your Overlink deployment. This template contains no account-specific app registration.
 
 1. Copy `.app.example.json` to `.app.json` and replace `YOUR_REGISTERED_APP_ID` with your app's registered ID.
 2. Copy `../assets/brand/pc-link-icon.png` into `assets/pc-link-icon.png` within this folder.

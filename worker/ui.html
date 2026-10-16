@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0a1119">
-<meta name="description" content="Your private Relay workspace. Connect Windows computers to ChatGPT and work with desktop, browser, files, and terminal tools.">
-<title>Relay — Your PC. One conversation.</title>
+<meta name="description" content="Your private Overlink workspace. Connect Windows computers to ChatGPT and work with desktop, browser, files, and terminal tools.">
+<title>Overlink — One network. Every computer. Every AI.</title>
 <style>
 :root {
   color-scheme: dark;
@@ -233,9 +233,9 @@ footer small { display: block; max-width: 470px; color: #6e8b9d; font-size: 11px
 <a class="skip-link" href="#computers">Skip to your computers</a>
 <main>
   <header class="masthead">
-    <a class="brand" href="#top" aria-label="Relay home">
+    <a class="brand" href="#top" aria-label="Overlink home">
       <img class="logo" src="__PC_LINK_ICON_DATA_URL__" alt="" width="43" height="43">
-      <span><span class="wordmark">Relay</span><span class="brand-subtitle">Your private workspace</span></span>
+      <span><span class="wordmark">Overlink</span><span class="brand-subtitle">Your private workspace</span></span>
     </a>
     <div class="masthead-right">
       <nav aria-label="On this page"><a href="#computers">Computers</a><a href="#setup">Setup</a></nav>
@@ -252,13 +252,13 @@ footer small { display: block; max-width: 470px; color: #6e8b9d; font-size: 11px
   <section class="hero" aria-labelledby="heroTitle">
     <div class="hero-copy">
       <span class="eyebrow">A connection that gets things done</span>
-      <h1 id="heroTitle"><span class="hero-line">Your PC.</span><span class="hero-line">One conversation.</span></h1>
-      <p class="hero-description">Bring ChatGPT closer to the work on your Windows PC. See your desktop, use your browser, work with files, and run commands through one private connection.</p>
+      <h1 id="heroTitle"><span class="hero-line">Every computer.</span><span class="hero-line">One network.</span></h1>
+      <p class="hero-description">Your computers and AI agents in one private workspace. Inspect machines, transfer Codex context, move files, and request approved recovery actions.</p>
       <div class="hero-actions">
         <a class="button" href="#computers">Your computers<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
         <a class="button secondary" href="#setup">Connect another PC</a>
       </div>
-      <div class="hero-capabilities" aria-label="Available Relay tools">
+      <div class="hero-capabilities" aria-label="Available Overlink tools">
         <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>Desktop</span>
         <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18"/></svg>Browser</span>
         <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3m6 0h4"/></svg>Terminal</span>
@@ -280,7 +280,16 @@ footer small { display: block; max-width: 470px; color: #6e8b9d; font-size: 11px
     <div id="screenPreview" aria-live="polite"></div>
   </section>
 
-  <section class="setup-grid" id="setup" aria-label="Set up Relay">
+  <section class="workspace" aria-labelledby="transfersTitle">
+    <div class="section-heading"><div><span class="eyebrow">Shared context</span><h2 id="transfersTitle">Session transfers</h2><p>See queued and delivered context handoffs between your paired computers.</p></div></div>
+    <div id="transfers" aria-live="polite" class="card">Loading transfers…</div>
+  </section>
+
+  <section class="workspace" aria-labelledby="performanceTitle">
+    <div class="section-heading"><div><span class="eyebrow">Measured performance</span><h2 id="performanceTitle">Relay latency</h2><p>Recent completed operations, including queue and execution time. Model thinking time is excluded.</p></div></div>
+    <div id="performance" aria-live="polite" class="card">Loading measurements…</div>
+  </section>
+  <section class="setup-grid" id="setup" aria-label="Set up Overlink">
     <article class="card setup-card">
       <span class="panel-icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="3" width="18" height="13" rx="2"/><path d="M8 20h8m-4-4v4m7-9v6m-3-3h6"/></svg></span>
       <span class="eyebrow">Windows launcher</span>
@@ -288,7 +297,7 @@ footer small { display: block; max-width: 470px; color: #6e8b9d; font-size: 11px
       <p>Use the same ChatGPT account to connect another Windows computer to your workspace.</p>
       <ol class="setup-steps">
         <li><span>Download and extract the setup ZIP.</span></li>
-        <li><span>Run <code>agent\Start-PC-Link.cmd</code>.</span></li>
+        <li><span>Run <code>agent\Start-Overlink.cmd</code>.</span></li>
         <li><span>Open the Windows launcher, choose your shared folder, and select <strong>Pair with ChatGPT</strong>.</span></li>
       </ol>
       <a class="button" href="/download"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg>Download Windows setup</a>
@@ -305,8 +314,8 @@ footer small { display: block; max-width: 470px; color: #6e8b9d; font-size: 11px
   </section>
 
   <footer>
-    <span class="footer-brand">Relay <span aria-hidden="true">/</span> Your private computer workspace</span>
-    <small>Keep the Windows launcher running on each computer. Use Relay from a supported ChatGPT chat while your PC stays online.</small>
+    <span class="footer-brand">Overlink <span aria-hidden="true">/</span> Your private computer workspace</span>
+    <small>Keep the Windows launcher running on each computer. Use Overlink from a supported ChatGPT chat while your PC stays online.</small>
   </footer>
 </main>
 <script>
@@ -318,7 +327,9 @@ async function refresh(){try{const r=await api('/api/devices');$('devices').repl
 if(local&&/^http:\/\/127\.0\.0\.1:\d+$/.test(local)&&/^[a-f0-9]{64}$/.test(key||'')){$('pair').hidden=false;let info;localCall('/pair-info').then(r=>{info=r;$('localInfo').textContent=r.name+' · '+r.root;$('pairBtn').disabled=false}).catch(e=>{$('localInfo').textContent=e.message+' If your browser asks to access the local network, choose Allow.'});$('pairBtn').onclick=async()=>{try{$('pairBtn').disabled=true;const p=await api('/api/pair',info);await localCall('/configure',{sealed:p.sealed});$('localInfo').textContent='Connected. You can close this tab.';$('pairBtn').textContent='Connected';await refresh()}catch(e){$('localInfo').textContent=e.message;$('pairBtn').disabled=false}}}
 const approvals=el('div','','card');approvals.append(el('h2','Awaiting your approval'));const approvalList=el('div','');approvals.append(approvalList);$('devices').before(approvals);
 async function refreshApprovals(){try{const r=await api('/api/pending');approvalList.replaceChildren();if(!r.jobs.length)approvalList.append(el('p','No actions awaiting approval.'));for(const j of r.jobs){const card=el('div','','card');card.append(el('strong',j.computer_name+' · '+j.operation+(j.action?' / '+j.action:'')));const detail=document.createElement('details');detail.append(el('summary','Review the exact request'));const pre=el('pre',j.summary);pre.style.whiteSpace='pre-wrap';pre.style.overflowWrap='anywhere';pre.style.maxHeight='350px';pre.style.overflow='auto';detail.append(pre);card.append(detail);for(const [label,approve]of[['Approve once',true],['Deny',false]]){const b=el('button',label,approve?'':'secondary');b.style.marginRight='10px';b.onclick=async()=>{b.disabled=true;try{await api('/api/approve',{job_id:j.job_id,approve});await refreshApprovals()}catch(e){$('notice').textContent=e.message;b.disabled=false}};card.append(b)}approvalList.append(card)}}catch(e){approvalList.textContent=e.message}}
-refresh();refreshApprovals();setInterval(()=>{refresh();refreshApprovals()},7000);
+ async function refreshTransfers(){try{const r=await api('/api/transfers');const area=$('transfers');area.replaceChildren();if(!r.transfers.length)area.append(el('p','No transfers yet. Ask ChatGPT to send context or hand off a Codex session.'));for(const t of r.transfers){const row=el('div','','row');const group=el('div');group.append(el('strong',t.title||t.kind),el('div',t.from+' → '+t.to+' · '+t.kind+' · '+t.bytes+' bytes','meta'));row.append(group,el('span',t.status,t.status==='queued'?'badge':'badge online'));area.append(row);}}catch(e){$('transfers').textContent='Transfer list unavailable: '+e.message;}}
+ async function refreshPerformance(){try{const r=await api('/api/performance'),area=$('performance');area.replaceChildren();if(!r.operations.length){area.append(el('p','No completed operations yet.'));return;}for(const m of r.operations.slice(0,8)){const row=el('div','','row');const left=el('div');left.append(el('strong',m.operation),el('div',m.count+' requests','meta'));const right=el('div');right.style.textAlign='right';right.append(el('strong','p50 '+m.p50_ms+' ms'),el('div','p95 '+m.p95_ms+' ms','meta'));row.append(left,right);area.append(row);}}catch(e){$('performance').textContent='Performance data unavailable: '+e.message;}}
+ refresh();refreshApprovals();refreshTransfers();refreshPerformance();setInterval(()=>{refresh();refreshApprovals();refreshTransfers()},7000);setInterval(refreshPerformance,30000);
 </script>
 </body>
 </html>

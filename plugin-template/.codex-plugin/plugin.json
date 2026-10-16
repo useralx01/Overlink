@@ -1,12 +1,12 @@
 {
-  "name": "relay",
-  "version": "1.0.0",
-  "description": "Connect ChatGPT to your own Windows computer.",
+  "name": "overlink",
+  "version": "0.4.1",
+  "description": "Connect your PCs and AI sessions to inspect, transfer and continue work across devices.",
   "apps": "./.app.json",
   "interface": {
-    "displayName": "Relay",
-    "shortDescription": "Your PC. One conversation.",
-    "longDescription": "Use your own Windows files, terminal, browser and desktop through a private Relay deployment.",
+    "displayName": "Overlink",
+    "shortDescription": "Every computer. Every AI. One connection.",
+    "longDescription": "Securely connect authorized computers, inspect PC health, transfer files and Codex context, and perform approved recovery actions.",
     "logo": "./assets/pc-link-icon.png",
     "composerIcon": "./assets/pc-link-icon.png",
     "brandColor": "#087A98"

@@ -20,10 +20,11 @@ $icon=[Drawing.Icon]::FromHandle($bitmap.GetHicon())
 $iconPath=Join-Path $buildRoot 'relay.ico'
 $stream=[IO.File]::Create($iconPath)
 try{$icon.Save($stream)}finally{$stream.Dispose();$bitmap.Dispose();$sourceBitmap.Dispose()}
-$exe=Join-Path $bundleRoot 'PC Link.exe'
+$exe=Join-Path $bundleRoot 'Overlink.exe'
 $framework=Split-Path -Parent $csc
-& $csc /nologo /target:winexe "/out:$exe" "/win32icon:$iconPath" /main:PCLink /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /r:System.Net.Http.dll /r:System.Security.dll "/r:$framework/WPF/UIAutomationClient.dll" "/r:$framework/WPF/UIAutomationTypes.dll" "/r:$framework/WPF/WindowsBase.dll" $compiledSource (Join-Path $publicRoot 'native/DesktopTools.cs') (Join-Path $publicRoot 'native/AgentBridge.cs')
+& $csc /nologo /target:winexe "/out:$exe" "/win32icon:$iconPath" /main:PCLink /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Web.Extensions.dll /r:System.Net.Http.dll /r:System.Security.dll "/r:$framework/WPF/UIAutomationClient.dll" "/r:$framework/WPF/UIAutomationTypes.dll" "/r:$framework/WPF/WindowsBase.dll" $compiledSource (Join-Path $publicRoot 'native/DesktopTools.cs') (Join-Path $publicRoot 'native/AgentBridge.cs') (Join-Path $publicRoot 'native/VyrMeshRecovery.cs') (Join-Path $publicRoot 'native/VyrCodexSessions.cs') (Join-Path $publicRoot 'native/VyrMeshInbox.cs')
 if($LASTEXITCODE -ne 0){throw 'Windows compilation failed.'}
+Copy-Item -LiteralPath $exe -Destination (Join-Path $bundleRoot 'PC Link.exe') -Force
 $bundleAgent=Join-Path $bundleRoot 'agent'
 New-Item -ItemType Directory -Path $bundleAgent -Force | Out-Null
 foreach($file in Get-ChildItem -LiteralPath (Join-Path $publicRoot 'agent') -File){
@@ -42,4 +43,4 @@ try{
   [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive,$file.FullName,$relative,[IO.Compression.CompressionLevel]::Optimal) | Out-Null
  }
 }finally{$archive.Dispose()}
-Write-Host "Built Windows bundle for $Origin in assets/pc-link.zip"
+Write-Host "Built Overlink Windows bundle for $Origin in assets/pc-link.zip"
