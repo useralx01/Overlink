@@ -6,6 +6,8 @@
 | --- | --- |
 | Legacy PC Link remote-control tools | Implemented and validated in a controlled environment |
 | Windows application | Built and integration-tested on two Windows PCs |
+| Windowless automatic startup | No child console allocated and no new visible terminals observed during checks on two PCs |
+| Startup recovery | Per-user login plus five-minute fallback/retry; controller singleton, explicit stop/resume and temporary runtime recovery tested |
 | Cross-PC synthetic file transfer | Tested both directions, including SHA-256 verification |
 | Synthetic Codex session handoff | Tested both directions |
 | Local workflow batching | Implemented and benchmarked |

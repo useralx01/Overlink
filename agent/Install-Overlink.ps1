@@ -53,13 +53,10 @@ try {
   if($LASTEXITCODE -ne 0){throw 'Overlink browser dependency installation failed.'}
 } finally { Pop-Location }
 if($EnableStartup){
-  $startup=Join-Path ([Environment]::GetFolderPath('Startup')) 'Overlink.cmd'
-  $launch=Join-Path $agent 'Launch-Overlink.ps1'
-  ('@echo off'+[Environment]::NewLine+'powershell.exe -NoLogo -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "'+$launch+'"') |
-    Set-Content -LiteralPath $startup -Encoding ASCII
+  & (Join-Path $agent 'Enable-Overlink-Startup.ps1')
 }
 Write-Host "Overlink safely staged at $target"
-Write-Host 'The existing PC Link process, startup files and pairing credentials were NOT changed.'
+Write-Host 'Existing processes and pairing credentials were preserved. Startup is changed only with -EnableStartup.'
 if($Activate){
   $old=Get-Process -Name 'PC Link' -ErrorAction SilentlyContinue
   if($old){throw 'PC Link is still running. Overlink is staged but not activated; finish existing tasks and switch deliberately.'}

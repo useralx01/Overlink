@@ -1,5 +1,7 @@
 # Overlink
 
+![Overlink dark-silver chain logo](assets/brand/overlink-logo.png)
+
 **Every computer. Every AI. One connection.**
 
 Overlink connects authorized Windows computers to ChatGPT and Codex through an authenticated MCP relay. It extends the original PC Link project with cross-PC context transfers, Codex session handoffs, diagnostics, guarded recovery, batched local workflows, and a latency dashboard.
@@ -58,6 +60,28 @@ node agent/browser.mjs --self-test
 ```
 
 Use `agent/Start-Overlink.cmd` inside the compiled Windows bundle to stage the desktop agent. The installer stages into `%LOCALAPPDATA%\Overlink\app` without terminating a running legacy PC Link controller. It does **not** activate a second paired agent over an existing connection. Before a production cutover, finish in-flight commands and verify the relay is compatible.
+
+## Background startup and recovery
+
+Startup is opt-in. From the compiled bundle, enable it with:
+
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\agent\Install-Overlink.ps1 -EnableStartup
+
+For an already installed, compatible Overlink agent, run its installed helper:
+
+    powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Overlink\app\agent\Enable-Overlink-Startup.ps1" -StartNow
+
+The helper installs a per-user login shortcut and a five-minute fallback scheduled task. Both enter through a windowless Windows executable; PowerShell children use CreateNoWindow so automated launches do not allocate a terminal. The persistent supervisor prevents duplicate controllers, retries temporary runtime failures, and restarts an exited controller. Explicit Stop remains respected.
+
+For installations inside a Windows Store app's virtual filesystem, the helper resolves the physical installation and re-enters its owning package. Existing pairing credentials stay in place. Prior startup/task settings are backed up under %LOCALAPPDATA%\Overlink\backup\startup-*.
+
+Five minutes is the fallback schedule, not a guaranteed recovery deadline. The persistent supervisor can recover sooner. A computer still needs power, an active user session and network access. Logout/reboot recovery and extended outage behavior have not been fully tested.
+
+The isolated recovery regression test does not use a real pairing:
+
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\startup-recovery.ps1
+
+The tests/background-startup.ps1 script checks an installed startup configuration, windowless child creation and five-minute intervals. Its optional -ExerciseRecovery switch stops the matching supervisor and verifies Task Scheduler restores it; it does not deliberately stop the controller.
 
 ## Self-hosting
 

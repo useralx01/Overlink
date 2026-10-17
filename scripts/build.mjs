@@ -3,7 +3,7 @@ await mkdir('dist/server', { recursive: true });
 await mkdir('dist/.openai', { recursive: true });
 const source = await readFile('worker/index.js', 'utf8');
 const cover = 'data:image/png;base64,' + (await readFile('assets/brand/pc-link-cover.png')).toString('base64');
-const icon = 'data:image/png;base64,' + (await readFile('assets/brand/pc-link-icon.png')).toString('base64');
+const icon = 'data:image/png;base64,' + (await readFile('assets/brand/overlink-logo.png')).toString('base64');
 const html = (await readFile('worker/ui.html', 'utf8')).replaceAll('__PC_LINK_COVER_DATA_URL__', cover).replaceAll('__PC_LINK_ICON_DATA_URL__', icon);
 const screenshotWidget = await readFile('worker/screenshot-widget.html', 'utf8');
 const executable = (await readFile('assets/pc-link.zip')).toString('base64');

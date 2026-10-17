@@ -14,10 +14,10 @@ $csc=Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
 if(-not (Test-Path -LiteralPath $csc)){$csc=Join-Path $env:WINDIR 'Microsoft.NET/Framework/v4.0.30319/csc.exe'}
 if(-not (Test-Path -LiteralPath $csc)){throw '.NET Framework 4 compiler was not found.'}
 Add-Type -AssemblyName System.Drawing
-$sourceBitmap=[Drawing.Bitmap]::new((Join-Path $publicRoot 'assets/brand/pc-link-icon.png'))
+$sourceBitmap=[Drawing.Bitmap]::new((Join-Path $publicRoot 'assets/brand/overlink-logo.png'))
 $bitmap=[Drawing.Bitmap]::new($sourceBitmap,256,256)
 $icon=[Drawing.Icon]::FromHandle($bitmap.GetHicon())
-$iconPath=Join-Path $buildRoot 'relay.ico'
+$iconPath=Join-Path $buildRoot 'overlink.ico'
 $stream=[IO.File]::Create($iconPath)
 try{$icon.Save($stream)}finally{$stream.Dispose();$bitmap.Dispose();$sourceBitmap.Dispose()}
 $exe=Join-Path $bundleRoot 'Overlink.exe'
